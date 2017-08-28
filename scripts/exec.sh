@@ -1,16 +1,16 @@
 #!/bin/bash
-prog=$1 #program to test
-dir1=$2 #test files dir
+prog=$1 #program to run
+input=$2 #input files dir
 
-for filename in `ls -tr $dir1`; do
-	file=$filename
-	file=$(echo $file| cut -d'/' -f 3)
-	c=$(echo $file| cut -d'.' -f 1)
+for i in 1 2 4 8 16 ; do
+	((t = $i * 1024))
+	((m = $i * 32))
+	echo ${t}x${m}		
 
-	echo $c
-#	for b in `seq 1 10`; do
-		./$prog < $dir1/$filename 
-#	done
+	for j in `seq 1 20` ; do
+		#echo etc_c_${t}x${m}_hihi_${j}.dat
+		./$prog $t $m < $input/etc_c_${t}x${m}_hihi_${j}.dat
+	done 
 	echo " "
 done
 

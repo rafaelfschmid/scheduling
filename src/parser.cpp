@@ -8,7 +8,7 @@
 using namespace std;
 
 #ifndef REPEAT
-#define REPEAT 10
+#define REPEAT 20
 #endif
 
 int main(int argc, char **argv) {
@@ -18,8 +18,8 @@ int main(int argc, char **argv) {
 		return 0;
 	}
 
-	std::vector<std::vector<double> > matrix;
-	std::vector<double> segments;
+	std::vector<std::vector<string> > matrix;
+
 	ifstream input(argv[1]);
 	ofstream output(argv[2]);
 
@@ -28,15 +28,13 @@ int main(int argc, char **argv) {
 		int k = 0;
 		while (getline(input, line)) {
 			//cout << k++ << "\n";
-			int size = stoi(line);
-
-			std::vector<double> times;
-			times.push_back(size);
+			std::vector<string> times;
+			times.push_back(line);
 			//cout << size << "\n";
 			for (int i = 0; i < REPEAT; i++) {
 				getline(input, line);
 				//cout << line << "\n";
-				times.push_back(stod(line));
+				times.push_back(line);
 			}
 			matrix.push_back(times);
 

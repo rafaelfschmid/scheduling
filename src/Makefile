@@ -1,26 +1,36 @@
-libs=-I"../../lib"
+libs=-I"../lib"
 #caching global memory
 #caching=-Xptxas -dlcm=ca
 params=-std=c++11 --expt-extended-lambda -lcuda
 gen=-gencode arch=compute_20,code=sm_20 -gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,code=sm_35 -gencode arch=compute_37,code=sm_37 -gencode arch=compute_50,code=sm_50 -gencode arch=compute_52,code=sm_52 -gencode arch=compute_52,code=compute_52
 segment=2
 
-all: minmin maxmin
+all: min minsort hybridmerge hybridradix gpuradix gpumerge
 
-minmin: minmin.cpp
-	g++ -O3 minmin.cpp -o minmin.exe -std=c++11
+min: min.cu
+	nvcc $(gen) -O3 min.cu -o min.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
 
-maxmin: maxmin.cpp
-	g++ -O3 maxmin.cpp -o maxmin.exe -std=c++11
+minsort: minsort.cu
+	nvcc $(gen) -O3 minsort.cu -o minsort.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
 
-gpuminmin: gpuminmin.cu
-	for block in 2 4 8 16 32 ; do \
-		nvcc $(gen) gpuminmin.cu -o gpuminmin$${block}.exe $(libs) $(params) -DELAPSED_TIME=$(TIME) -DEXECUTIONS=$(EXECS) -DBLOCK_SIZE=$$block ; \
-	done
+hybridmerge: hybridmerge.cu
+	nvcc $(gen) -O3 hybridmerge.cu -o hybridmerge.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
+
+hybridradix: hybridradix.cu
+	nvcc $(gen) -O3 hybridradix.cu -o hybridradix.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
+
+gpuradix: gpuradix.cu
+	nvcc $(gen) gpuradix.cu -o gpuradix.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
+
+gpumerge: gpumerge.cu
+	nvcc $(gen) gpumerge.cu -o gpumerge.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
 
 generate: gen_equal.cpp
 	g++ -O3 gen_equal.cpp -o equal.exe -DEXP_BITS_SIZE=$(BITS) -DRAND
 
 parser: parser.cpp
 	g++ -O3 parser.cpp -o parser.exe -std=c++11
+
+parsermean: parsermean.cpp
+	g++ -O3 parsermean.cpp -o parsermean.exe -std=c++11
 
