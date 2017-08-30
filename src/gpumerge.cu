@@ -25,6 +25,10 @@
 #define ELAPSED_TIME 0
 #endif
 
+#ifndef BLOCK_SIZE
+#define BLOCK_SIZE 32
+#endif
+
 #ifndef EXECUTIONS
 #define EXECUTIONS 11
 #endif
@@ -98,12 +102,10 @@ __global__ void min_min_sorted(float* machines, uint* task_index, float* complet
 
 		for(int e = m/2; e > 0; e/=2)
 		{
-			if(i < e) {
-				if (s_comp_times[i + e] == s_comp_times[i] && s_ind_max[i + e] < s_ind_max[i]) {
-					s_comp_times[i] = s_comp_times[i + e];
-					s_ind_max[i] = s_ind_max[i + e];
-				}
-				else if(s_comp_times[i + e] < s_comp_times[i]) {
+			if (i < e) {
+				if ((s_comp_times[i + e] < s_comp_times[i])
+						|| (s_comp_times[i + e] == s_comp_times[i]
+								&& s_ind_max[i + e] < s_ind_max[i])) {
 					s_comp_times[i] = s_comp_times[i + e];
 					s_ind_max[i] = s_ind_max[i + e];
 				}
@@ -213,7 +215,6 @@ int main(int argc, char** argv) {
 	dim3 dimGrid(1);
 	min_min_sorted<<<dimGrid, dimBlock, m * sizeof(float) + m * sizeof(int) >>>(d_machines, d_task_index,
 				d_completion_times,	d_task_map, d_task_deleted, d_machine_cur_index, m, t);
-
 	cudaEventRecord(stop);
 
 	cudaError_t errSync = cudaGetLastError();
@@ -238,6 +239,9 @@ int main(int argc, char** argv) {
 	cudaFree(d_segments);
 	cudaFree(d_machines);
 	cudaFree(d_task_index);
+	cudaFree(d_completion_times);
+	cudaFree(d_task_map);
+	cudaFree(d_task_deleted);
 
 	if (ELAPSED_TIME != 1) {
 		//print(machines, m, t);

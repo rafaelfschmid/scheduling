@@ -45,22 +45,11 @@ int main(int argc, char **argv) {
 		}
 		input.close();
 
-/*		for (int k = 0; k < 11; k++) {
-			for (int j = 0; j < matrix[0].size(); j++) {
-				output << std::fixed << matrix[0][j][k] << "\t";
-//				cout << matrix[0][j][k] << ";";
-			}
-			output << "\n";
-//			cout << "\n";
-		}*/
-
 		for (int k = 0; k < 2; k++) {
 			for (int j = 0; j < matrix.size(); j++) {
 				output << std::fixed << matrix[j][k] << "\t";
-				//cout << matrix[j][k] << ";";
 			}
 			output << "\n";
-			//cout << "\n";
 		}
 		output.close();
 	}

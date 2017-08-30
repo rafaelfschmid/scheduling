@@ -25,6 +25,15 @@ gpuradix: gpuradix.cu
 gpumerge: gpumerge.cu
 	nvcc $(gen) gpumerge.cu -o gpumerge.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
 
+gpumintaskrow: gpumintaskrow.cu
+	nvcc $(gen) gpumintaskrow.cu -o gpumintaskrow.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
+
+gpumintaskcol: gpumintaskcol.cu
+	nvcc $(gen) gpumintaskcol.cu -o gpumintaskcol.exe $(libs) $(params) -DELAPSED_TIME=$(TIME) -DBLOCK_SIZE=512
+
+gputranspose: gputranspose.cu
+	nvcc $(gen) gputranspose.cu -o gputranspose.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
+
 generate: gen_equal.cpp
 	g++ -O3 gen_equal.cpp -o equal.exe -DEXP_BITS_SIZE=$(BITS) -DRAND
 

@@ -13,8 +13,7 @@
 
  */
 
-#include <cub/util_allocator.cuh>
-#include <cub/device/device_segmented_radix_sort.cuh>
+#include <moderngpu/kernel_segsort.hxx>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,10 +23,6 @@
 
 #ifndef ELAPSED_TIME
 #define ELAPSED_TIME 0
-#endif
-
-#ifndef BLOCK_SIZE
-#define BLOCK_SIZE 32
 #endif
 
 void cudaTest(cudaError_t error) {
@@ -61,59 +56,55 @@ void print(T* vec, uint t) {
 
 }
 
-void printSeg(int* host_data, uint num_seg, uint num_ele) {
-	std::cout << "\n";
-	for (uint i = 0; i < num_seg; i++) {
-		std::cout << host_data[i] << " ";
-	}
-	std::cout << num_ele << " ";
-	std::cout << "\n";
-}
-
-__global__ void transpose(const float *machines, float *machines_out,
-		const uint *task_index, uint* task_index_out, int t, int m)
-{
-	int row = blockIdx.y * blockDim.y + threadIdx.y;
-  	int col = blockIdx.x * blockDim.x + threadIdx.x;
-
-  	machines_out[col * t + row] = machines[row * m + col];
-  	task_index_out[col * t + row] = task_index[row * m + col];
-
-}
-
-/*__global__ void min_min_sorted(float* machines, uint* task_index, float* completion_times, bool* task_map,
-		bool* task_deleted, uint* machine_current_index, int m, int t) {
+__global__ void min_min(float* machines, float* completion_times, bool* task_map, bool* task_deleted,
+			int t, int m, float MAX_FLOAT) {
 
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
-
 	extern __shared__ int vec[];
 
 	float *s_comp_times = (float*)&vec[0];
-	int *s_ind_m = (int*)&vec[m];
+	int *s_ind_t = (int*)&vec[t];
+	int *s_ind_m = (int*)&vec[t+t];
 
 	uint min = 0;
 	uint imin = 0;
+	uint jmin = 0;
+	float min_value = 0;
 
 	for(int k = 0; k < t; k++) {
 
-		int j = machine_current_index[i];
-		while (task_deleted[task_index[i * t + j]]) {
-			j++;
-		}
-		machine_current_index[i] = j;
+		min_value = MAX_FLOAT;
 
-		s_comp_times[i] = completion_times[i] + machines[i * t + j];
-		s_ind_m[i] = i;
+		if(task_deleted[i]) {
+			s_comp_times[i] = MAX_FLOAT;
+		}
+		else {
+
+			for (int j = 0; j < m; j++) {
+
+				if (completion_times[j] + machines[i * m + j] < min_value) {
+					imin = i;
+					jmin = j;
+					min = imin * m + jmin;
+					min_value = completion_times[jmin] + machines[min];
+				}
+			}
+
+			s_comp_times[i] = min_value;
+			s_ind_t[i] = imin;
+			s_ind_m[i] = jmin;
+		}
 
 		__syncthreads();
 
-		for(int e = m/2; e > 0; e/=2)
+		for(int e = t/2; e > 0; e/=2)
 		{
 			if (i < e) {
 				if ((s_comp_times[i + e] < s_comp_times[i])
 						|| (s_comp_times[i + e] == s_comp_times[i]
-								&& s_ind_m[i + e] < s_ind_m[i])) {
+								&& s_ind_t[i + e] < s_ind_t[i])) {
 					s_comp_times[i] = s_comp_times[i + e];
+					s_ind_t[i] = s_ind_t[i + e];
 					s_ind_m[i] = s_ind_m[i + e];
 				}
 			}
@@ -121,17 +112,19 @@ __global__ void transpose(const float *machines, float *machines_out,
 		}
 
 		if(i == 0) {
-			min = s_ind_m[0] * t + machine_current_index[s_ind_m[0]];
-			imin = s_ind_m[0];
+			min = s_ind_t[0] * m + s_ind_m[0];
+			imin = s_ind_t[0];
+			jmin = s_ind_m[0];
 
-			completion_times[imin] = s_comp_times[0];
-			task_deleted[task_index[min]] = true;
-			task_map[task_index[min] * m + imin] = true;
+			task_deleted[imin] = true;
+			task_map[min] = true;
+			completion_times[jmin] = s_comp_times[0];
 		}
 
 		__syncthreads();
+
 	}
-}*/
+}
 
 int main(int argc, char** argv) {
 
@@ -145,23 +138,13 @@ int main(int argc, char** argv) {
 	t = atoi(argv[1]);
 	m = atoi(argv[2]);
 
-	uint mem_size_seg 				= sizeof(int) * (m + 1);
-	uint mem_size_machines 			= sizeof(float) * (m * t);
-	uint mem_size_task_index		= sizeof(uint) * (m * t);
-
+	uint mem_size_machines 			= sizeof(float) * (t * m);
 	uint mem_size_completion_times 	= sizeof(float) * (m);
-	uint mem_size_machine_cur_index = sizeof(uint) * (m);
-
 	uint mem_size_task_deleted 		= sizeof(bool) * (t);
 	uint mem_size_task_map 			= sizeof(bool) * (t * m);
 
-	int *segments 				= (int   *) malloc(mem_size_seg);
 	float *machines				= (float *) malloc(mem_size_machines);
-	uint *task_index 			= (uint  *) malloc(mem_size_task_index);
-
 	float *completion_times 	= (float *) malloc(mem_size_completion_times);
-	uint *machine_cur_index = (uint  *) malloc(mem_size_machine_cur_index);
-
 	bool *task_deleted			= (bool  *) malloc(mem_size_task_deleted);
 	bool *task_map 				= (bool  *) malloc(mem_size_task_map);
 
@@ -170,67 +153,37 @@ int main(int argc, char** argv) {
 		for (int j = 0; j < m; j++) {
 			int a = scanf("%f", &aux);
 
-			task_index[j * t + i] = i;
-			machines[j * t + i] = aux;
-			segments[j] = j*t;
-
+			machines[i * m + j] = aux;
 			task_map[i * m + j] = false;
 			completion_times[j] = 0;
-			machine_cur_index[j] = 0;
 		}
 		task_deleted[i] = false;
 	}
-	segments[m] = m*t;
 
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 
-	float *d_completion_times;
-	uint *d_machine_cur_index;
+	float *d_machines, *d_completion_times;
 	bool *d_task_deleted, *d_task_map;
+	float MAX_FLOAT = std::numeric_limits<float>::max();
 
+	cudaTest(cudaMalloc((void **) &d_machines, mem_size_machines));
 	cudaTest(cudaMalloc((void **) &d_completion_times, mem_size_completion_times));
-	cudaTest(cudaMalloc((void **) &d_machine_cur_index, mem_size_machine_cur_index));
 	cudaTest(cudaMalloc((void **) &d_task_deleted, mem_size_task_deleted));
 	cudaTest(cudaMalloc((void **) &d_task_map, mem_size_task_map));
 
 	// copy host memory to device
+	cudaTest(cudaMemcpy(d_machines, machines, mem_size_machines, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_completion_times, completion_times, mem_size_completion_times, cudaMemcpyHostToDevice));
-	cudaTest(cudaMemcpy(d_machine_cur_index, machine_cur_index, mem_size_machine_cur_index, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_task_deleted, task_deleted, mem_size_task_deleted, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_task_map, task_map, mem_size_task_map, cudaMemcpyHostToDevice));
 
-	uint *d_task_index, *d_task_index_out;
-	int *d_segments;
-	float *d_machines, *d_machines_out;
-	void *d_temp = NULL;
-	size_t temp_bytes = 0;
-
-	cudaTest(cudaMalloc((void **) &d_segments, mem_size_seg));
-	cudaTest(cudaMalloc((void **) &d_machines, mem_size_machines));
-	cudaTest(cudaMalloc((void **) &d_machines_out, mem_size_machines));
-	cudaTest(cudaMalloc((void **) &d_task_index, mem_size_task_index));
-	cudaTest(cudaMalloc((void **) &d_task_index_out, mem_size_task_index));
-
-	// copy host memory to device
-	cudaTest(cudaMemcpy(d_segments, segments, mem_size_seg, cudaMemcpyHostToDevice));
-	cudaTest(cudaMemcpy(d_machines, machines, mem_size_machines, cudaMemcpyHostToDevice));
-	cudaTest(cudaMemcpy(d_task_index, task_index, mem_size_task_index, cudaMemcpyHostToDevice));
-
-	cudaEventRecord(start);
-	cub::DeviceSegmentedRadixSort::SortPairs(d_temp, temp_bytes, d_machines, d_machines_out,
-			d_task_index, d_task_index_out, m * t,	m, d_segments, d_segments + 1);
-	cudaTest(cudaMalloc((void **) &d_temp, temp_bytes));
-	cub::DeviceSegmentedRadixSort::SortPairs(d_temp, temp_bytes, d_machines, d_machines_out,
-			d_task_index, d_task_index_out, m * t,	m, d_segments, d_segments + 1);
-
-
-
-	dim3 dimBlock(m);
+	dim3 dimBlock(t);
 	dim3 dimGrid(1);
-	min_min_sorted<<<dimGrid, dimBlock, m * sizeof(float) + m * sizeof(int) >>>(d_machines_out, d_task_index_out,
-			d_completion_times,	d_task_map, d_task_deleted, d_machine_cur_index, m, t);
+	cudaEventRecord(start);
+	min_min<<<dimGrid, dimBlock, t * sizeof(float) + t * sizeof(int) + t * sizeof(int) >>>(d_machines, d_completion_times,
+			d_task_map, d_task_deleted, t, m, MAX_FLOAT);
 	cudaEventRecord(stop);
 
 	cudaError_t errSync = cudaGetLastError();
@@ -252,13 +205,7 @@ int main(int argc, char** argv) {
 	cudaTest(cudaMemcpy(completion_times, d_completion_times, mem_size_completion_times, cudaMemcpyDeviceToHost));
 	cudaTest(cudaMemcpy(task_map, d_task_map, mem_size_task_map, cudaMemcpyDeviceToHost));
 
-	cudaFree(d_segments);
 	cudaFree(d_machines);
-	cudaFree(d_machines_out);
-	cudaFree(d_task_index);
-	cudaFree(d_task_index_out);
-	cudaFree(d_temp);
-
 	cudaFree(d_completion_times);
 	cudaFree(d_task_map);
 	cudaFree(d_task_deleted);
@@ -272,10 +219,7 @@ int main(int argc, char** argv) {
 	free(task_deleted);
 	free(task_map);
 	free(machines);
-	free(task_index);
-	free(segments);
 	free(completion_times);
-	free(machine_cur_index);
 
 	return 0;
 }
