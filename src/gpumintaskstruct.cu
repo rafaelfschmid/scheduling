@@ -13,10 +13,7 @@
 
  */
 
-#include <cub/util_type.cuh>
-#include <cub/util_allocator.cuh>
-#include <cub/device/device_radix_sort.cuh>
-#include <cub/device/device_reduce.cuh>
+#include <moderngpu/kernel_segsort.hxx>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,39 +45,7 @@ struct Reduce {
 		this->m = 0;
 		this->value = 0.0;
 	}
-
-	static Reduce Max(){
-		float max = std::numeric_limits<float>::max();
-		return Reduce(0, 0, max);
-	}
-	//__host__ __device__
-	//bool operator() (const Reduce& i,const Reduce& j) const { return (i.value < j.value); }
-
-	__host__ __device__
-	bool operator<(const Reduce& x) const
-	{
-		return this->value < x.value;
-	}
-
-	__host__ __device__
-	bool operator>(const Reduce& x) const
-	{
-		return this->value > x.value;
-	}
-};
-
-void print(Reduce* vec, uint t, uint m) {
-	std::cout << "\n";
-	for (uint i = 0; i < t; i++) {
-		for (uint j = 0; j < m; j++) {
-			std::cout << "t=" << vec[i * m + j].t << " m="
-					<< vec[i * m + j].m << " value="
-					<< vec[i * m + j].value << "\t||";
-		}
-		std::cout << "\n";
-	}
-
-}
+} myobj;
 
 void cudaTest(cudaError_t error) {
 	if (error != cudaSuccess) {
@@ -111,24 +76,123 @@ void print(T* vec, uint t) {
 	std::cout << "\n";
 }
 
-__global__ void calc_completion_times(float* machines, float* completion_times, bool *task_deleted,
-		Reduce* completion_aux, int m, int t, float MAX_FLOAT) {
+__global__ void min_min(float* machines, float* completion_times, bool* task_map, bool* task_deleted,
+		Reduce* d_reduc_comp, int m, int t, float MAX_FLOAT) {
 
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	int tId = threadIdx.x;
+	extern __shared__ Reduce s_comp_times[];
+
+	uint min = 0;
+	uint imin = 0;
+	uint jmin = 0;
+	float min_value = MAX_FLOAT;
 
 	if(!task_deleted[i]) {
 		for (int j = 0; j < m; j++) {
-			completion_aux[j * t + i].t = i;
-			completion_aux[j * t + i].m = j;
-			completion_aux[j * t + i].value = completion_times[j] + machines[j * t + i];
+
+			if (completion_times[j] + machines[j * t + i] < min_value) {
+				imin = i;
+				jmin = j;
+				min = jmin * t + imin;
+				min_value = completion_times[jmin] + machines[min];
+			}
 		}
 	}
-	else {
-		for (int j = 0; j < m; j++) {
-			completion_aux[j * t + i].t = i;
-			completion_aux[j * t + i].m = j;
-			completion_aux[j * t + i].value = MAX_FLOAT;
+
+	s_comp_times[tId].t = imin;
+	s_comp_times[tId].m = jmin;
+	s_comp_times[tId].value = min_value;
+
+	__syncthreads();
+
+	for(int e = blockDim.x/2; e > 0; e/=2)
+	{
+		if (tId < e) {
+			if ((s_comp_times[tId + e].value < s_comp_times[tId].value)
+					|| (s_comp_times[tId + e].value == s_comp_times[tId].value
+							&& s_comp_times[tId + e].t < s_comp_times[tId].t)) {
+				s_comp_times[tId].t = s_comp_times[tId + e].t;
+				s_comp_times[tId].m = s_comp_times[tId + e].m;
+				s_comp_times[tId].value = s_comp_times[tId + e].value;
+			}
 		}
+		__syncthreads();
+	}
+
+	if(tId == 0) {
+		d_reduc_comp[blockIdx.x].t = s_comp_times[0].t;
+		d_reduc_comp[blockIdx.x].m = s_comp_times[0].m;
+		d_reduc_comp[blockIdx.x].value = s_comp_times[0].value;
+	}
+}
+
+__global__ void reduction(Reduce* d_reduc_comp) {
+
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	int tId = threadIdx.x;
+
+	extern __shared__ Reduce s_comp_times[];
+
+	s_comp_times[tId].t = d_reduc_comp[i].t;
+	s_comp_times[tId].m = d_reduc_comp[i].m;
+	s_comp_times[tId].value = d_reduc_comp[i].value;
+
+	__syncthreads();
+
+	for(int e = blockDim.x/2; e > 0; e/=2)
+	{
+		if (tId < e) {
+			if ((s_comp_times[tId + e].value < s_comp_times[tId].value)
+					|| (s_comp_times[tId + e].value == s_comp_times[tId].value
+							&& s_comp_times[tId + e].t < s_comp_times[tId].t)) {
+				s_comp_times[tId].t = s_comp_times[tId + e].t;
+				s_comp_times[tId].m = s_comp_times[tId + e].m;
+				s_comp_times[tId].value = s_comp_times[tId + e].value;
+			}
+		}
+		__syncthreads();
+	}
+
+	if(tId == 0) {
+		d_reduc_comp [blockIdx.x].t = s_comp_times[0].t;
+		d_reduc_comp[blockIdx.x].m = s_comp_times[0].m;
+		d_reduc_comp[blockIdx.x].value = s_comp_times[0].value;
+	}
+}
+
+__global__ void block_reduction(float* completion_times, bool* task_map, bool* task_deleted,
+		Reduce* d_reduc_comp, int t) {
+
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	int tId = threadIdx.x;
+
+	extern __shared__ Reduce s_comp_times[];
+
+	s_comp_times[tId].t = d_reduc_comp[i].t;
+	s_comp_times[tId].m = d_reduc_comp[i].m;
+	s_comp_times[tId].value = d_reduc_comp[i].value;
+
+	__syncthreads();
+
+	for(int e = blockDim.x/2; e > 0; e/=2)
+	{
+		if (tId < e) {
+			if ((s_comp_times[tId + e].value < s_comp_times[tId].value)
+					|| (s_comp_times[tId + e].value == s_comp_times[tId].value
+							&& s_comp_times[tId + e].t < s_comp_times[tId].t)) {
+				s_comp_times[tId].t = s_comp_times[tId + e].t;
+				s_comp_times[tId].m = s_comp_times[tId + e].m;
+				s_comp_times[tId].value = s_comp_times[tId + e].value;
+			}
+		}
+		__syncthreads();
+	}
+
+	if(tId == 0) {
+		task_deleted[ s_comp_times[0].t ] = true;
+		task_map[ s_comp_times[0].m * t + s_comp_times[0].t ] = true;
+		completion_times[ s_comp_times[0].m ] = s_comp_times[0].value;
 	}
 }
 
@@ -148,7 +212,7 @@ int main(int argc, char** argv) {
 	uint mem_size_completion_times 	= sizeof(float) * (m);
 	uint mem_size_task_deleted 		= sizeof(bool) * (t);
 	uint mem_size_task_map 			= sizeof(bool) * (m * t);
-	uint mem_size_completion_aux	= sizeof(Reduce) * (m * t);
+	uint mem_size_reduc_comp		= sizeof(Reduce) * (t/BLOCK_SIZE);
 
 	float *machines				= (float *) malloc(mem_size_machines);
 	float *completion_times 	= (float *) malloc(mem_size_completion_times);
@@ -173,20 +237,15 @@ int main(int argc, char** argv) {
 
 	float *d_machines, *d_completion_times;
 	bool *d_task_deleted, *d_task_map;
-	Reduce *d_completion_aux;
-	Reduce *d_min, *min;
-	min = (Reduce *) malloc(sizeof(Reduce));
-	void *d_temp_storage = NULL;
-	size_t temp_storage_bytes = 0;
+	Reduce *d_reduc_comp;
 	float MAX_FLOAT = std::numeric_limits<float>::max();
 
-	cudaTest(cudaMalloc((void **) &d_min, sizeof(Reduce)));
 	cudaTest(cudaMalloc((void **) &d_machines, mem_size_machines));
 	cudaTest(cudaMalloc((void **) &d_completion_times, mem_size_completion_times));
 	cudaTest(cudaMalloc((void **) &d_task_deleted, mem_size_task_deleted));
 	cudaTest(cudaMalloc((void **) &d_task_map, mem_size_task_map));
 
-	cudaTest(cudaMalloc((void **) &d_completion_aux, mem_size_completion_aux));
+	cudaTest(cudaMalloc((void **) &d_reduc_comp, mem_size_reduc_comp));
 
 	// copy host memory to device
 	cudaTest(cudaMemcpy(d_machines, machines, mem_size_machines, cudaMemcpyHostToDevice));
@@ -194,21 +253,26 @@ int main(int argc, char** argv) {
 	cudaTest(cudaMemcpy(d_task_deleted, task_deleted, mem_size_task_deleted, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_task_map, task_map, mem_size_task_map, cudaMemcpyHostToDevice));
 
+
 	cudaEventRecord(start);
 	for(int k = 0; k < t; k++) {
-		int dim = t/BLOCK_SIZE;
 		dim3 dimBlock(BLOCK_SIZE);
+		int dim = t/BLOCK_SIZE;
 		dim3 dimGrid(dim);
-		calc_completion_times<<<dimGrid, dimBlock>>>
-				(d_machines, d_completion_times, d_task_deleted, d_completion_aux, m, t, MAX_FLOAT);
+		min_min<<<dimGrid, dimBlock, BLOCK_SIZE * sizeof(Reduce) >>>
+				(d_machines, d_completion_times, d_task_map, d_task_deleted,
+						d_reduc_comp, m, t, MAX_FLOAT);
 
-		thrust::device_vector<Reduce>::iterator iter = thrust::max_element(d_completion_aux, d_completion_aux+(m*t),);
-		/*cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, d_completion_aux, d_min, m * t);
-		cudaMalloc(&d_temp_storage, temp_storage_bytes);	// Allocate temporary storage
-		cub::DeviceReduce::Min(d_temp_storage, temp_storage_bytes, d_completion_aux, d_min, m * t);*/
-
-		cudaTest(cudaMemcpy(min, d_min, sizeof(Reduce), cudaMemcpyDeviceToHost));
-		printf("min=%f t=%d m=%d\n", min->value, min->t, min->m);
+		for( ; dim > BLOCK_SIZE; dim/=BLOCK_SIZE) {
+			dim3 block(BLOCK_SIZE);
+			dim3 grid_b(dim/BLOCK_SIZE);
+			reduction<<<grid_b, block, BLOCK_SIZE * sizeof(Reduce) >>>
+				(d_reduc_comp);
+		}
+		dim3 block(dim);
+		dim3 grid_b(1);
+		block_reduction<<<grid_b, block, dim * sizeof(Reduce) >>> (d_completion_times, d_task_map, d_task_deleted,
+				d_reduc_comp, t);
 	}
 	cudaEventRecord(stop);
 
@@ -236,7 +300,7 @@ int main(int argc, char** argv) {
 	cudaFree(d_task_map);
 	cudaFree(d_task_deleted);
 
-	cudaFree(d_completion_aux);
+	cudaFree(d_reduc_comp);
 
 	if (ELAPSED_TIME != 1) {
 		//print(machines, m, t);

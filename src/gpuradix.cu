@@ -70,18 +70,7 @@ void printSeg(int* host_data, uint num_seg, uint num_ele) {
 	std::cout << "\n";
 }
 
-__global__ void transpose(const float *machines, float *machines_out,
-		const uint *task_index, uint* task_index_out, int t, int m)
-{
-	int row = blockIdx.y * blockDim.y + threadIdx.y;
-  	int col = blockIdx.x * blockDim.x + threadIdx.x;
-
-  	machines_out[col * t + row] = machines[row * m + col];
-  	task_index_out[col * t + row] = task_index[row * m + col];
-
-}
-
-/*__global__ void min_min_sorted(float* machines, uint* task_index, float* completion_times, bool* task_map,
+__global__ void min_min_sorted(float* machines, uint* task_index, float* completion_times, bool* task_map,
 		bool* task_deleted, uint* machine_current_index, int m, int t) {
 
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -131,7 +120,7 @@ __global__ void transpose(const float *machines, float *machines_out,
 
 		__syncthreads();
 	}
-}*/
+}
 
 int main(int argc, char** argv) {
 

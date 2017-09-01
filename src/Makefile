@@ -31,6 +31,12 @@ gpumintaskrow: gpumintaskrow.cu
 gpumintaskcol: gpumintaskcol.cu
 	nvcc $(gen) gpumintaskcol.cu -o gpumintaskcol.exe $(libs) $(params) -DELAPSED_TIME=$(TIME) -DBLOCK_SIZE=512
 
+gpumintaskstruct: gpumintaskstruct.cu
+	nvcc $(gen) gpumintaskstruct.cu -o gpumintaskstruct.exe $(libs) $(params) -DELAPSED_TIME=$(TIME) -DBLOCK_SIZE=512
+
+gpuminmachine: gpuminmachine.cu
+	nvcc $(gen) gpuminmachine.cu -o gpuminmachine.exe $(libs) $(params) -DELAPSED_TIME=$(TIME) -DBLOCK_SIZE=32
+
 gputranspose: gputranspose.cu
 	nvcc $(gen) gputranspose.cu -o gputranspose.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
 

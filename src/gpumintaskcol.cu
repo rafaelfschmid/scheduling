@@ -152,15 +152,15 @@ __global__ void reduction(float* d_reduc_comp, int* d_reduc_ind_t, int* d_reduc_
 }
 
 __global__ void block_reduction(float* completion_times, bool* task_map, bool* task_deleted,
-		float* d_reduc_comp, int* d_reduc_ind_t, int* d_reduc_ind_m, int t, int blocks) {
+		float* d_reduc_comp, int* d_reduc_ind_t, int* d_reduc_ind_m, int t) {
 
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	int tId = threadIdx.x;
 
 	extern __shared__ int vec[];
 	float *s_comp_times = (float*)&vec[0];
-	int *s_ind_t = (int*)&vec[blocks];
-	int *s_ind_m = (int*)&vec[2*blocks];
+	int *s_ind_t = (int*)&vec[blockDim.x];
+	int *s_ind_m = (int*)&vec[2*blockDim.x];
 
 	s_comp_times[tId] = d_reduc_comp[i];
 	s_ind_t[tId] = d_reduc_ind_t[i];
@@ -168,7 +168,7 @@ __global__ void block_reduction(float* completion_times, bool* task_map, bool* t
 
 	__syncthreads();
 
-	for(int e = blocks/2; e > 0; e/=2)
+	for(int e = blockDim.x/2; e > 0; e/=2)
 	{
 		if (tId < e) {
 			if ((s_comp_times[tId + e] < s_comp_times[tId])
@@ -271,7 +271,7 @@ int main(int argc, char** argv) {
 		dim3 grid_b(1);
 		block_reduction<<<grid_b, block, dim * sizeof(float) + dim * sizeof(int) +
 				dim * sizeof(int) >>> (d_completion_times, d_task_map, d_task_deleted,
-				d_reduc_comp, d_reduc_ind_t, d_reduc_ind_m, t, dim);
+				d_reduc_comp, d_reduc_ind_t, d_reduc_ind_m, t);
 	}
 	cudaEventRecord(stop);
 
@@ -298,6 +298,10 @@ int main(int argc, char** argv) {
 	cudaFree(d_completion_times);
 	cudaFree(d_task_map);
 	cudaFree(d_task_deleted);
+
+	cudaFree(d_reduc_comp);
+	cudaFree(d_reduc_ind_t);
+	cudaFree(d_reduc_ind_m);
 
 	if (ELAPSED_TIME != 1) {
 		//print(machines, m, t);
