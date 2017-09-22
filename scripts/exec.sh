@@ -8,7 +8,6 @@ for i in 1 2 4 8 16 32 ; do
 	echo ${t}x${m}		
 
 	for j in `seq 1 20` ; do
-		#echo etc_c_${t}x${m}_hihi_${j}.dat
 		./$prog $t $m < $input/etc_c_${t}x${m}_hihi_${j}.dat
 	done 
 	echo " "
