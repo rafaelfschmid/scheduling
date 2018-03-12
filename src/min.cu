@@ -13,7 +13,7 @@
 #include <limits>
 #include <cuda.h>
 
-void min_min(float* tasks, float* completion_times, bool* task_map, bool* task_deleted, int t, int m) {
+void min_min(float* tasks, float* completion_times, int* task_map, int t, int m) {
 
 	uint min = 0;
 	uint imin = 0;
@@ -24,7 +24,7 @@ void min_min(float* tasks, float* completion_times, bool* task_map, bool* task_d
 		min_value = std::numeric_limits<float>::max();
 
 		for (int i = 0; i < t; i++) {
-			if (!task_deleted[i]) {
+			if (task_map[i] == -1) {
 				for (int j = 0; j < m; j++) {
 
 					if (completion_times[j] + tasks[i * m + j] < min_value) {
@@ -36,8 +36,7 @@ void min_min(float* tasks, float* completion_times, bool* task_map, bool* task_d
 				}
 			}
 		}
-		task_deleted[imin] = true;
-		task_map[min] = true;
+		task_map[imin] = jmin;
 		completion_times[jmin] = min_value;
 	}
 
@@ -80,8 +79,7 @@ int main(int argc, char **argv) {
 	m = atoi(argv[2]);
 	//std::cout << "t=" << t << " m=" << m << "\n";
 
-	bool *task_deleted = (bool *) malloc(sizeof(bool) * t);
-	bool *task_map = (bool *) malloc(sizeof(bool) * (t * m));
+	int *task_map = (int *) malloc(sizeof(int) * (t));
 	float *tasks = (float *) malloc(sizeof(float) * (t * m));
 	float *completion_times = (float *) malloc(sizeof(float) * (m));
 
@@ -90,10 +88,9 @@ int main(int argc, char **argv) {
 		for (int j = 0; j < m; j++) {
 			int a = scanf("%f", &aux);
 			tasks[i * m + j] = aux;
-			task_map[i * m + j] = false;
 			completion_times[j] = 0;
 		}
-		task_deleted[i] = false;
+		task_map[i] = -1;
 	}
 
 	cudaEvent_t start, stop;
@@ -101,7 +98,7 @@ int main(int argc, char **argv) {
 	cudaEventCreate(&stop);
 
 	cudaEventRecord(start);
-	min_min(tasks, completion_times, task_map, task_deleted, t, m);
+	min_min(tasks, completion_times, task_map, t, m);
 	cudaEventRecord(stop);
 
 	if (ELAPSED_TIME == 1) {
@@ -117,7 +114,6 @@ int main(int argc, char **argv) {
 		//print(task_map, t, m);
 	}
 
-	free(task_deleted);
 	free(task_map);
 	free(tasks);
 	free(completion_times);

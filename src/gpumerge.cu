@@ -75,8 +75,8 @@ void printSeg(int* host_data, uint num_seg, uint num_ele) {
 	std::cout << "\n";
 }
 
-__global__ void min_min_sorted(float* machines, uint* task_index, float* completion_times, bool* task_map,
-		bool* task_deleted, uint* machine_current_index, int m, int t) {
+__global__ void min_min_sorted(float* machines, uint* task_index, float* completion_times, int* task_map,
+		uint* machine_current_index, int m, int t) {
 
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	extern __shared__ int vec[];
@@ -90,7 +90,7 @@ __global__ void min_min_sorted(float* machines, uint* task_index, float* complet
 	for(int k = 0; k < t; k++) {
 
 		int j = machine_current_index[i];
-		while (task_deleted[task_index[i * t + j]]) {
+		while (task_map[task_index[i * t + j]] != -1) {
 			j++;
 		}
 		machine_current_index[i] = j;
@@ -118,8 +118,7 @@ __global__ void min_min_sorted(float* machines, uint* task_index, float* complet
 			imin = s_ind_max[0];
 
 			completion_times[imin] = s_comp_times[0];
-			task_deleted[task_index[min]] = true;
-			task_map[task_index[min] * m + imin] = true;
+			task_map[task_index[min]] = imin;
 		}
 
 		__syncthreads();
@@ -146,8 +145,7 @@ int main(int argc, char** argv) {
 	uint mem_size_completion_times 	= sizeof(float) * (m);
 	uint mem_size_machine_cur_index = sizeof(uint) * (m);
 
-	uint mem_size_task_deleted 		= sizeof(bool) * (t);
-	uint mem_size_task_map 			= sizeof(bool) * (t * m);
+	uint mem_size_task_map 			= sizeof(int) * (t);
 
 	int *segments 				= (int   *) malloc(mem_size_seg);
 	float *machines				= (float *) malloc(mem_size_machines);
@@ -156,8 +154,7 @@ int main(int argc, char** argv) {
 	float *completion_times 	= (float *) malloc(mem_size_completion_times);
 	uint *machine_cur_index = (uint  *) malloc(mem_size_machine_cur_index);
 
-	bool *task_deleted			= (bool  *) malloc(mem_size_task_deleted);
-	bool *task_map 				= (bool  *) malloc(mem_size_task_map);
+	int *task_map 				= (int  *) malloc(mem_size_task_map);
 
 	float aux;
 	for (int i = 0; i < t; i++) {
@@ -168,11 +165,11 @@ int main(int argc, char** argv) {
 			machines[j * t + i] = aux;
 			segments[j] = j*t;
 
-			task_map[i * m + j] = false;
+
 			completion_times[j] = 0;
 			machine_cur_index[j] = 0;
 		}
-		task_deleted[i] = false;
+		task_map[i] = -1;
 	}
 
 	cudaEvent_t start, stop;
@@ -181,17 +178,16 @@ int main(int argc, char** argv) {
 
 	float *d_completion_times;
 	uint *d_machine_cur_index;
-	bool *d_task_deleted, *d_task_map;
+	int *d_task_map;
+	//bool *d_task_deleted;
 
 	cudaTest(cudaMalloc((void **) &d_completion_times, mem_size_completion_times));
 	cudaTest(cudaMalloc((void **) &d_machine_cur_index, mem_size_machine_cur_index));
-	cudaTest(cudaMalloc((void **) &d_task_deleted, mem_size_task_deleted));
 	cudaTest(cudaMalloc((void **) &d_task_map, mem_size_task_map));
 
 	// copy host memory to device
 	cudaTest(cudaMemcpy(d_completion_times, completion_times, mem_size_completion_times, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_machine_cur_index, machine_cur_index, mem_size_machine_cur_index, cudaMemcpyHostToDevice));
-	cudaTest(cudaMemcpy(d_task_deleted, task_deleted, mem_size_task_deleted, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_task_map, task_map, mem_size_task_map, cudaMemcpyHostToDevice));
 
 	uint *d_task_index;
@@ -214,7 +210,7 @@ int main(int argc, char** argv) {
 	dim3 dimBlock(m);
 	dim3 dimGrid(1);
 	min_min_sorted<<<dimGrid, dimBlock, m * sizeof(float) + m * sizeof(int) >>>(d_machines, d_task_index,
-				d_completion_times,	d_task_map, d_task_deleted, d_machine_cur_index, m, t);
+			d_completion_times,	d_task_map, d_machine_cur_index, m, t);
 	cudaEventRecord(stop);
 
 	cudaError_t errSync = cudaGetLastError();
@@ -241,7 +237,6 @@ int main(int argc, char** argv) {
 	cudaFree(d_task_index);
 	cudaFree(d_completion_times);
 	cudaFree(d_task_map);
-	cudaFree(d_task_deleted);
 
 	if (ELAPSED_TIME != 1) {
 		//print(machines, m, t);
@@ -249,7 +244,6 @@ int main(int argc, char** argv) {
 		print(completion_times, m);
 	}
 
-	free(task_deleted);
 	free(task_map);
 	free(machines);
 	free(task_index);

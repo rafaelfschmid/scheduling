@@ -68,8 +68,8 @@ void printSeg(int* host_data, uint num_seg, uint num_ele) {
 	std::cout << "\n";
 }
 
-void min_min_sorted(float* machines, uint* task_index, float* completion_times, bool* task_map,
-		bool* task_deleted, uint* machine_current_index, int m, int t) {
+void min_min_sorted(float* machines, uint* task_index, float* completion_times, int* task_map,
+		uint* machine_current_index, int m, int t) {
 
 	uint min = 0;
 	uint imin = 0;
@@ -82,7 +82,7 @@ void min_min_sorted(float* machines, uint* task_index, float* completion_times, 
 		for (int i = 0; i < m; i++) {
 
 			int j = machine_current_index[i];
-			while (task_deleted[task_index[i * t + j]]) {
+			while (task_map[task_index[i * t + j]] != -1) {
 				j++;
 			}
 			machine_current_index[i] = j;
@@ -93,8 +93,7 @@ void min_min_sorted(float* machines, uint* task_index, float* completion_times, 
 				min_value = completion_times[imin] + machines[min];
 			}
 		}
-		task_deleted[task_index[min]] = true;
-		task_map[task_index[min] * m + imin] = true;
+		task_map[task_index[min]] = imin;
 		completion_times[imin] = min_value;
 	}
 
@@ -116,8 +115,7 @@ int main(int argc, char** argv) {
 	uint mem_size_machines = sizeof(float) * (m * t);
 	uint mem_size_task_index = sizeof(uint) * (m * t);
 
-	bool *task_deleted = (bool *) malloc(sizeof(bool) * t);
-	bool *task_map = (bool *) malloc(sizeof(bool) * (t * m));
+	int *task_map = (int *) malloc(sizeof(int) * (t));
 
 	int *segments = (int *) malloc(mem_size_seg);
 	float *machines = (float *) malloc(mem_size_machines);
@@ -135,11 +133,10 @@ int main(int argc, char** argv) {
 			machines[j * t + i] = aux;
 			segments[j] = j*t;
 
-			task_map[i * m + j] = false;
 			completion_times[j] = 0;
 			machine_current_index[j] = 0;
 		}
-		task_deleted[i] = false;
+		task_map[i] = -1;
 	}
 
 	cudaEvent_t start, stop;
@@ -166,7 +163,7 @@ int main(int argc, char** argv) {
 	cudaTest(cudaMemcpy(task_index, d_task_index, mem_size_task_index, cudaMemcpyDeviceToHost));
 	cudaTest(cudaMemcpy(machines, d_machines, mem_size_machines, cudaMemcpyDeviceToHost));
 
-	min_min_sorted(machines, task_index, completion_times, task_map, task_deleted, machine_current_index, m, t);
+	min_min_sorted(machines, task_index, completion_times, task_map, machine_current_index, m, t);
 
 	cudaEventRecord(stop);
 
@@ -194,7 +191,6 @@ int main(int argc, char** argv) {
 		print(completion_times, m);
 	}
 
-	free(task_deleted);
 	free(task_map);
 	free(machines);
 	free(task_index);

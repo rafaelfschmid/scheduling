@@ -1,8 +1,16 @@
 
 times=$1
-parsed=$2
+outputdir=$2
+#machine=$3
 
-for filename in `ls -tr $times`; do
-	./parsermean.exe $times/$filename $parsed/$filename
-done
+file=${times}".parsed"
+echo $file
+
+if test -s $outputdir/$file 
+then
+	mv $outputdir/$file  $outputdir/${file}".bkp"
+fi
+
+./parsermean.exe $outputdir/$file "$(ls -d  "$PWD"/../times/$times/*)"
+
 

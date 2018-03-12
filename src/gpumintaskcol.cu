@@ -58,7 +58,7 @@ void print(T* vec, uint t) {
 	std::cout << "\n";
 }
 
-__global__ void min_min(float* machines, float* completion_times, bool* task_map, bool* task_deleted,
+__global__ void min_min(float* machines, float* completion_times, int* task_map,
 		float* d_reduc_comp, int* d_reduc_ind_t, int* d_reduc_ind_m,
 			int m, int t, float MAX_FLOAT) {
 
@@ -75,7 +75,7 @@ __global__ void min_min(float* machines, float* completion_times, bool* task_map
 	uint jmin = 0;
 	float min_value = MAX_FLOAT;
 
-	if(!task_deleted[i]) {
+	if(task_map[i] == -1) {
 		for (int j = 0; j < m; j++) {
 
 			if (completion_times[j] + machines[j * t + i] < min_value) {
@@ -151,7 +151,7 @@ __global__ void reduction(float* d_reduc_comp, int* d_reduc_ind_t, int* d_reduc_
 	}
 }
 
-__global__ void block_reduction(float* completion_times, bool* task_map, bool* task_deleted,
+__global__ void block_reduction(float* completion_times, int* task_map,
 		float* d_reduc_comp, int* d_reduc_ind_t, int* d_reduc_ind_m, int t) {
 
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -183,8 +183,7 @@ __global__ void block_reduction(float* completion_times, bool* task_map, bool* t
 	}
 
 	if(tId == 0) {
-		task_deleted[ s_ind_t[0] ] = true;
-		task_map[ s_ind_m[0] * t + s_ind_t[0] ] = true;
+		task_map[ s_ind_t[0] ] = s_ind_m[0];
 		completion_times[ s_ind_m[0] ] = s_comp_times[0];
 	}
 }
@@ -203,15 +202,13 @@ int main(int argc, char** argv) {
 
 	uint mem_size_machines 			= sizeof(float) * (m * t);
 	uint mem_size_completion_times 	= sizeof(float) * (m);
-	uint mem_size_task_deleted 		= sizeof(bool) * (t);
-	uint mem_size_task_map 			= sizeof(bool) * (m * t);
+	uint mem_size_task_map 			= sizeof(int) * (t);
 	uint mem_size_reduc_comp		= sizeof(float) * (t/BLOCK_SIZE);
 	uint mem_size_reduc_ind			= sizeof(int) * (t/BLOCK_SIZE);
 
 	float *machines				= (float *) malloc(mem_size_machines);
 	float *completion_times 	= (float *) malloc(mem_size_completion_times);
-	bool *task_deleted			= (bool  *) malloc(mem_size_task_deleted);
-	bool *task_map 				= (bool  *) malloc(mem_size_task_map);
+	int *task_map 				= (int  *) malloc(mem_size_task_map);
 
 	float aux;
 	for (int i = 0; i < t; i++) {
@@ -219,10 +216,9 @@ int main(int argc, char** argv) {
 			int a = scanf("%f", &aux);
 
 			machines[j * t + i] = aux;
-			task_map[j * t + i] = false;
 			completion_times[j] = 0;
 		}
-		task_deleted[i] = false;
+		task_map[i] = -1;
 	}
 
 	cudaEvent_t start, stop;
@@ -231,12 +227,11 @@ int main(int argc, char** argv) {
 
 	float *d_machines, *d_completion_times, *d_reduc_comp;
 	int *d_reduc_ind_t, *d_reduc_ind_m;
-	bool *d_task_deleted, *d_task_map;
+	int *d_task_map;
 	float MAX_FLOAT = std::numeric_limits<float>::max();
 
 	cudaTest(cudaMalloc((void **) &d_machines, mem_size_machines));
 	cudaTest(cudaMalloc((void **) &d_completion_times, mem_size_completion_times));
-	cudaTest(cudaMalloc((void **) &d_task_deleted, mem_size_task_deleted));
 	cudaTest(cudaMalloc((void **) &d_task_map, mem_size_task_map));
 
 	cudaTest(cudaMalloc((void **) &d_reduc_comp, mem_size_reduc_comp));
@@ -246,7 +241,6 @@ int main(int argc, char** argv) {
 	// copy host memory to device
 	cudaTest(cudaMemcpy(d_machines, machines, mem_size_machines, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_completion_times, completion_times, mem_size_completion_times, cudaMemcpyHostToDevice));
-	cudaTest(cudaMemcpy(d_task_deleted, task_deleted, mem_size_task_deleted, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_task_map, task_map, mem_size_task_map, cudaMemcpyHostToDevice));
 
 
@@ -257,8 +251,8 @@ int main(int argc, char** argv) {
 		dim3 dimGrid(dim);
 		min_min<<<dimGrid, dimBlock, BLOCK_SIZE * sizeof(float) +
 				BLOCK_SIZE * sizeof(int) + BLOCK_SIZE * sizeof(int) >>>
-				(d_machines, d_completion_times, d_task_map, d_task_deleted,
-						d_reduc_comp, d_reduc_ind_t, d_reduc_ind_m, m, t, MAX_FLOAT);
+				(d_machines, d_completion_times, d_task_map, d_reduc_comp, d_reduc_ind_t,
+						d_reduc_ind_m, m, t, MAX_FLOAT);
 
 		for( ; dim > BLOCK_SIZE; dim/=BLOCK_SIZE) {
 			dim3 block(BLOCK_SIZE);
@@ -270,7 +264,7 @@ int main(int argc, char** argv) {
 		dim3 block(dim);
 		dim3 grid_b(1);
 		block_reduction<<<grid_b, block, dim * sizeof(float) + dim * sizeof(int) +
-				dim * sizeof(int) >>> (d_completion_times, d_task_map, d_task_deleted,
+				dim * sizeof(int) >>> (d_completion_times, d_task_map,
 				d_reduc_comp, d_reduc_ind_t, d_reduc_ind_m, t);
 	}
 	cudaEventRecord(stop);
@@ -297,7 +291,6 @@ int main(int argc, char** argv) {
 	cudaFree(d_machines);
 	cudaFree(d_completion_times);
 	cudaFree(d_task_map);
-	cudaFree(d_task_deleted);
 
 	cudaFree(d_reduc_comp);
 	cudaFree(d_reduc_ind_t);
@@ -309,7 +302,6 @@ int main(int argc, char** argv) {
 		print(completion_times, m);
 	}
 
-	free(task_deleted);
 	free(task_map);
 	free(machines);
 	free(completion_times);

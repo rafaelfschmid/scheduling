@@ -55,8 +55,8 @@ void segmented_sorting(Task* machines, int m, int t) {
 	}
 }
 
-void min_min_sorted(Task* machines, float* completion_times, bool* task_map,
-		bool* task_deleted, uint* machine_current_index, int m, int t) {
+void min_min_sorted(Task* machines, float* completion_times, int* task_map,
+		uint* machine_current_index, int m, int t) {
 
 	uint min = 0;
 	uint imin = 0;
@@ -69,7 +69,7 @@ void min_min_sorted(Task* machines, float* completion_times, bool* task_map,
 		for (int i = 0; i < m; i++) {
 
 			int j = machine_current_index[i];
-			while (task_deleted[machines[i * t + j].id]) {
+			while (task_map[machines[i * t + j].id] != -1) {
 				j++;
 			}
 			machine_current_index[i] = j;
@@ -80,8 +80,7 @@ void min_min_sorted(Task* machines, float* completion_times, bool* task_map,
 				min_value = completion_times[imin] + machines[min].time;
 			}
 		}
-		task_deleted[machines[min].id] = true;
-		task_map[machines[min].id * m + imin] = true;
+		task_map[machines[min].id] = imin;
 		completion_times[imin] = min_value;
 	}
 
@@ -122,10 +121,8 @@ int main(int argc, char **argv) {
 
 	t = atoi(argv[1]);
 	m = atoi(argv[2]);
-	//std::cout << "t=" << t << " m=" << m << "\n";
 
-	bool *task_deleted = (bool *) malloc(sizeof(bool) * t);
-	bool *task_map = (bool *) malloc(sizeof(bool) * (t * m));
+	int *task_map = (int *) malloc(sizeof(int) * (t));
 	Task *machines = (Task *) malloc(sizeof(Task) * (m * t));
 	float *completion_times = (float *) malloc(sizeof(float) * (m));
 	uint *machine_current_index = (uint *) malloc(sizeof(uint) * (m));
@@ -136,11 +133,10 @@ int main(int argc, char **argv) {
 			int a = scanf("%f", &aux);
 			machines[j * t + i].id = i;
 			machines[j * t + i].time = aux;
-			task_map[i * m + j] = false;
 			completion_times[j] = 0;
 			machine_current_index[j] = 0;
 		}
-		task_deleted[i] = false;
+		task_map[i] = -1;
 	}
 
 	cudaEvent_t start, stop;
@@ -150,7 +146,7 @@ int main(int argc, char **argv) {
 	cudaEventRecord(start);
 	segmented_sorting(machines, m, t);
 	//print(machines, t, m);
-	min_min_sorted(machines, completion_times, task_map, task_deleted, machine_current_index, m, t);
+	min_min_sorted(machines, completion_times, task_map, machine_current_index, m, t);
 	cudaEventRecord(stop);
 
 	if (ELAPSED_TIME == 1) {
@@ -166,7 +162,6 @@ int main(int argc, char **argv) {
 		//print(task_map, t, m);
 	}
 
-	free(task_deleted);
 	free(task_map);
 	free(machines);
 	free(completion_times);
