@@ -9,6 +9,6 @@ time=$2 #arquivos de tempo
 ./../scripts/exec.sh gpumintaskcol.exe		$input > $time/gpumintaskcol.time
 #./../scripts/exec.sh gpumintaskstruct.exe	$input > $time/gpumintaskstruct.time
 ./../scripts/exec.sh minsort.exe 		$input > $time/minsort.time
-./../scripts/exec.sh gpumintaskrow.exe		$input > $time/gpumintaskrow.time
+#./../scripts/exec.sh gpumintaskrow.exe		$input > $time/gpumintaskrow.time
 ./../scripts/exec.sh min.exe 			$input > $time/min.time
 
