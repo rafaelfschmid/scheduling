@@ -2,10 +2,10 @@ libs=-I"../lib"
 #caching global memory
 #caching=-Xptxas -dlcm=ca
 params=-std=c++11 --expt-extended-lambda -lcuda
-gen=-gencode arch=compute_20,code=sm_20 -gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,code=sm_35 -gencode arch=compute_37,code=sm_37 -gencode arch=compute_50,code=sm_50 -gencode arch=compute_52,code=sm_52 -gencode arch=compute_52,code=compute_52
+gen=-gencode arch=compute_20,code=sm_20 -gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,code=sm_35 -gencode arch=compute_37,code=sm_37 -gencode arch=compute_50,code=sm_50 -gencode arch=compute_52,code=sm_52 -gencode arch=compute_60,code=sm_60
 segment=2
 
-all: min minsort hybridmerge hybridradix gpuradix gpumerge gpumintaskrow gpumintaskcol
+all: min minsort hybridmerge hybridradix gpuradix gpumerge gpumintaskcol
 
 min: min.cu
 	nvcc $(gen) -O3 min.cu -o min.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
