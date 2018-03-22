@@ -4,11 +4,12 @@
 #include <vector>
 #include <stdlib.h>
 #include <string>
+#include <algorithm>
 
 using namespace std;
 
 #ifndef REPEAT
-#define REPEAT 20
+#define REPEAT 10
 #endif
 
 const vector<string> explode(const string& s, const char& c)
@@ -55,10 +56,8 @@ int main(int argc, char **argv) {
 			std::vector<string> times;
 			times.push_back(line);
 
-			double mean = 0;
 			for (int i = 0; i < REPEAT; i++) {
 				getline(input, line);
-				//times.push_back(line);
 			}
 
 			matrix.push_back(times);
@@ -82,15 +81,19 @@ int main(int argc, char **argv) {
 			while (getline(input, line)) {
 				std::vector<string> times;
 
-				double mean = 0;
+				//double mean = 0;
+				double vec[REPEAT];
 				for (int i = 0; i < REPEAT; i++) {
+
 					getline(input, line);
 
 					double value = stod(line);
-					mean += value;
+					//mean += value;
+					vec[i] = value;
 				}
-				mean /= REPEAT;
-				matrix[k].push_back(std::to_string(mean));
+				//mean /= REPEAT;
+				std::sort(&vec[0], &vec[REPEAT]);
+				matrix[k].push_back(std::to_string(vec[REPEAT/2]));
 
 				k++;
 				getline(input, line);

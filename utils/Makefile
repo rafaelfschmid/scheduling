@@ -12,4 +12,6 @@ parser: parser.cpp
 parsermean: parsermean.cpp
 	g++ -O3 parsermean.cpp -o parsermean.exe -std=c++11
 
+parserstd: parserstd.cpp
+	g++ -O3 parserstd.cpp -o parserstd.exe -std=c++11
 
