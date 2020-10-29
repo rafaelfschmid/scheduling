@@ -114,13 +114,15 @@ void print(T* vec, uint t) {
 int main(int argc, char **argv) {
 	int t, m;
 
-	if (argc < 3) {
+	/*if (argc < 3) {
 			printf("Parameters missing: <number of tasks> <number of machines>\n\n");
 			return 0;
 	}
-
 	t = atoi(argv[1]);
 	m = atoi(argv[2]);
+	*/
+	int a = scanf("%d", &t);
+	int a = scanf("%d", &m);
 
 	int *task_map = (int *) malloc(sizeof(int) * (t));
 	Task *machines = (Task *) malloc(sizeof(Task) * (m * t));

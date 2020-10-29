@@ -130,13 +130,15 @@ int main(int argc, char** argv) {
 
 	int t, m;
 
-	if (argc < 3) {
+	/*if (argc < 3) {
 			printf("Parameters missing: <number of tasks> <number of machines>\n\n");
 			return 0;
 	}
-
 	t = atoi(argv[1]);
 	m = atoi(argv[2]);
+	*/
+	int a = scanf("%d", &t);
+	int a = scanf("%d", &m);
 
 	uint mem_size_machines 			= sizeof(float) * (t * m);
 	uint mem_size_completion_times 	= sizeof(float) * (m);

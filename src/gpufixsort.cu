@@ -18,15 +18,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
+
 #include <cuda.h>
 
 #ifndef ELAPSED_TIME
 #define ELAPSED_TIME 0
 #endif
 
+#ifndef BLOCK_SIZE
+#define BLOCK_SIZE 32
+#endif
+
 #ifndef EXECUTIONS
 #define EXECUTIONS 11
 #endif
+
+//using namespace cub;
 
 void cudaTest(cudaError_t error) {
 	if (error != cudaSuccess) {
@@ -68,35 +75,54 @@ void printSeg(int* host_data, uint num_seg, uint num_ele) {
 	std::cout << "\n";
 }
 
-void min_min_sorted(float* machines, uint* task_index, float* completion_times, int* task_map,
+__global__ void min_min_sorted(float* machines, uint* task_index, float* completion_times, int* task_map,
 		uint* machine_current_index, int m, int t) {
+
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	extern __shared__ int vec[];
+
+	float *s_comp_times = (float*)&vec[0];
+	int *s_ind_max = (int*)&vec[m];
 
 	uint min = 0;
 	uint imin = 0;
-	float min_value;
 
 	for(int k = 0; k < t; k++) {
 
-		min_value = std::numeric_limits<float>::max();
-
-		for (int i = 0; i < m; i++) {
-
-			int j = machine_current_index[i];
-			while (task_map[task_index[i * t + j]] != -1) {
-				j++;
-			}
-			machine_current_index[i] = j;
-
-			if (completion_times[i] + machines[i * t + j] < min_value) {
-				min = i * t + j;
-				imin = i;
-				min_value = completion_times[imin] + machines[min];
-			}
+		int j = machine_current_index[i];
+		while (task_map[task_index[i * t + j]] != -1) {
+			j++;
 		}
-		task_map[task_index[min]] = imin;
-		completion_times[imin] = min_value;
-	}
+		machine_current_index[i] = j;
 
+		s_comp_times[i] = completion_times[i] + machines[i * t + j];
+		s_ind_max[i] = i;
+
+		__syncthreads();
+
+		for(int e = m/2; e > 0; e/=2)
+		{
+			if (i < e) {
+				if ((s_comp_times[i + e] < s_comp_times[i])
+						|| (s_comp_times[i + e] == s_comp_times[i]
+								&& s_ind_max[i + e] < s_ind_max[i])) {
+					s_comp_times[i] = s_comp_times[i + e];
+					s_ind_max[i] = s_ind_max[i + e];
+				}
+			}
+			__syncthreads();
+		}
+
+		if(i == 0) {
+			min = s_ind_max[0] * t + machine_current_index[s_ind_max[0]];
+			imin = s_ind_max[0];
+
+			completion_times[imin] = s_comp_times[0];
+			task_map[task_index[min]] = imin;
+		}
+
+		__syncthreads();
+	}
 }
 
 int main(int argc, char** argv) {
@@ -113,18 +139,25 @@ int main(int argc, char** argv) {
 	int a = scanf("%d", &t);
 	int a = scanf("%d", &m);
 
-	uint mem_size_seg = sizeof(int) * (m);
-	uint mem_size_machines = sizeof(float) * (m * t);
-	uint mem_size_task_index = sizeof(uint) * (m * t);
 
-	int *task_map = (int *) malloc(sizeof(int) * (t));
+	//uint mem_size_seg 				= sizeof(int) * (m + 1);
+	uint mem_size_seg 				= sizeof(int) * (m);
+	uint mem_size_machines 			= sizeof(float) * (m * t);
+	uint mem_size_task_index		= sizeof(uint) * (m * t);
 
-	int *segments = (int *) malloc(mem_size_seg);
-	float *machines = (float *) malloc(mem_size_machines);
-	uint *task_index = (uint *) malloc(mem_size_task_index);
+	uint mem_size_completion_times 	= sizeof(float) * (m);
+	uint mem_size_machine_cur_index = sizeof(uint) * (m);
 
-	float *completion_times = (float *) malloc(sizeof(float) * (m));
-	uint *machine_current_index = (uint *) malloc(sizeof(uint) * (m));
+	uint mem_size_task_map 			= sizeof(int) * (t);
+
+	int *segments 				= (int   *) malloc(mem_size_seg);
+	float *machines				= (float *) malloc(mem_size_machines);
+	uint *task_index 			= (uint  *) malloc(mem_size_task_index);
+
+	float *completion_times 	= (float *) malloc(mem_size_completion_times);
+	uint *machine_cur_index = (uint  *) malloc(mem_size_machine_cur_index);
+
+	int *task_map 				= (int  *) malloc(mem_size_task_map);
 
 	float aux;
 	for (int i = 0; i < t; i++) {
@@ -135,8 +168,9 @@ int main(int argc, char** argv) {
 			machines[j * t + i] = aux;
 			segments[j] = j*t;
 
+
 			completion_times[j] = 0;
-			machine_current_index[j] = 0;
+			machine_cur_index[j] = 0;
 		}
 		task_map[i] = -1;
 	}
@@ -144,6 +178,20 @@ int main(int argc, char** argv) {
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
+
+	float *d_completion_times;
+	uint *d_machine_cur_index;
+	int *d_task_map;
+	//bool *d_task_deleted;
+
+	cudaTest(cudaMalloc((void **) &d_completion_times, mem_size_completion_times));
+	cudaTest(cudaMalloc((void **) &d_machine_cur_index, mem_size_machine_cur_index));
+	cudaTest(cudaMalloc((void **) &d_task_map, mem_size_task_map));
+
+	// copy host memory to device
+	cudaTest(cudaMemcpy(d_completion_times, completion_times, mem_size_completion_times, cudaMemcpyHostToDevice));
+	cudaTest(cudaMemcpy(d_machine_cur_index, machine_cur_index, mem_size_machine_cur_index, cudaMemcpyHostToDevice));
+	cudaTest(cudaMemcpy(d_task_map, task_map, mem_size_task_map, cudaMemcpyHostToDevice));
 
 	uint *d_task_index;
 	int *d_segments;
@@ -153,20 +201,19 @@ int main(int argc, char** argv) {
 	cudaTest(cudaMalloc((void **) &d_machines, mem_size_machines));
 	cudaTest(cudaMalloc((void **) &d_task_index, mem_size_task_index));
 
-	cudaEventRecord(start);
 	// copy host memory to device
 	cudaTest(cudaMemcpy(d_segments, segments, mem_size_seg, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_machines, machines, mem_size_machines, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_task_index, task_index, mem_size_task_index, cudaMemcpyHostToDevice));
 
+	cudaEventRecord(start);
 	mgpu::standard_context_t context;
 	mgpu::segmented_sort(d_machines, d_task_index, m * t, d_segments, m, mgpu::less_t<float>(), context);
 
-	cudaTest(cudaMemcpy(task_index, d_task_index, mem_size_task_index, cudaMemcpyDeviceToHost));
-	cudaTest(cudaMemcpy(machines, d_machines, mem_size_machines, cudaMemcpyDeviceToHost));
-
-	min_min_sorted(machines, task_index, completion_times, task_map, machine_current_index, m, t);
-
+	dim3 dimBlock(m);
+	dim3 dimGrid(1);
+	min_min_sorted<<<dimGrid, dimBlock, m * sizeof(float) + m * sizeof(int) >>>(d_machines, d_task_index,
+			d_completion_times,	d_task_map, d_machine_cur_index, m, t);
 	cudaEventRecord(stop);
 
 	cudaError_t errSync = cudaGetLastError();
@@ -183,9 +230,16 @@ int main(int argc, char** argv) {
 		std::cout << milliseconds << "\n";
 	}
 
+	cudaDeviceSynchronize();
+
+	cudaTest(cudaMemcpy(completion_times, d_completion_times, mem_size_completion_times, cudaMemcpyDeviceToHost));
+	cudaTest(cudaMemcpy(task_map, d_task_map, mem_size_task_map, cudaMemcpyDeviceToHost));
+
 	cudaFree(d_segments);
 	cudaFree(d_machines);
 	cudaFree(d_task_index);
+	cudaFree(d_completion_times);
+	cudaFree(d_task_map);
 
 	if (ELAPSED_TIME != 1) {
 		//print(machines, m, t);
@@ -198,7 +252,7 @@ int main(int argc, char** argv) {
 	free(task_index);
 	free(segments);
 	free(completion_times);
-	free(machine_current_index);
+	free(machine_cur_index);
 
 	return 0;
 }
