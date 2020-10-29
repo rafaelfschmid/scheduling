@@ -122,7 +122,7 @@ int main(int argc, char **argv) {
 	m = atoi(argv[2]);
 	*/
 	int a = scanf("%d", &t);
-	int a = scanf("%d", &m);
+	a = scanf("%d", &m);
 
 	int *task_map = (int *) malloc(sizeof(int) * (t));
 	Task *machines = (Task *) malloc(sizeof(Task) * (m * t));

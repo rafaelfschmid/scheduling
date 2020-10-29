@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
 	m = atoi(argv[2]);
 	*/
 	int a = scanf("%d", &t);
-	int a = scanf("%d", &m);
+	a = scanf("%d", &m);
 	//std::cout << "t=" << t << " m=" << m << "\n";
 
 	int *task_map = (int *) malloc(sizeof(int) * (t));

@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
 	m = atoi(argv[2]);
 	*/
 	int a = scanf("%d", &t);
-	int a = scanf("%d", &m);
+	a = scanf("%d", &m);
 
 	uint mem_size_machines 			= sizeof(float) * (m * t);
 	uint mem_size_task_index		= sizeof(uint) * (m * t);
