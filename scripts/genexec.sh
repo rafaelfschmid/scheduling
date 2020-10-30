@@ -17,7 +17,7 @@ for i in 1 2 4 8 16 32 64 128 ; do
 			echo ${t}x${m}_${j} >> ${times}/${progs[p]}.time
 
 			for k in `seq 1 10` ; do
-				./${progs[p]}.exe $t $m < B.u_c_hihi >> ${times}/${progs[p]}.time
+				./${progs[p]}.exe < B.u_c_hihi >> ${times}/${progs[p]}.time
 			done
 			echo " " >> ${times}/${progs[p]}.time
 		done
