@@ -26,7 +26,7 @@
 #endif
 
 #ifndef BLOCK_SIZE
-#define BLOCK_SIZE 32
+#define BLOCK_SIZE 8
 #endif
 
 #ifndef EXECUTIONS
@@ -76,9 +76,10 @@ void printSeg(int* host_data, uint num_seg, uint num_ele) {
 }
 
 __global__ void min_min_sorted(float* machines, uint* task_index, float* completion_times, int* task_map,
-		uint* machine_current_index, int m, int t) {
+		uint* machine_current_index, float* reduced_times, uint* reduced_indexes, int m, int t) {
 
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	int idx = threadIdx.x;
 	extern __shared__ int vec[];
 
 	float *s_comp_times = (float*)&vec[0];
@@ -87,7 +88,7 @@ __global__ void min_min_sorted(float* machines, uint* task_index, float* complet
 	uint min = 0;
 	uint imin = 0;
 
-	for(int k = 0; k < t; k++) {
+	//for(int k = 0; k < t; k++) {
 
 		int j = machine_current_index[i];
 		while (task_map[task_index[i * t + j]] != -1) {
@@ -95,34 +96,81 @@ __global__ void min_min_sorted(float* machines, uint* task_index, float* complet
 		}
 		machine_current_index[i] = j;
 
-		s_comp_times[i] = completion_times[i] + machines[i * t + j];
-		s_ind_max[i] = i;
+		s_comp_times[idx] = completion_times[i] + machines[i * t + j];
+		s_ind_max[idx] = i;
 
 		__syncthreads();
 
 		for(int e = m/2; e > 0; e/=2)
 		{
-			if (i < e) {
-				if ((s_comp_times[i + e] < s_comp_times[i])
-						|| (s_comp_times[i + e] == s_comp_times[i]
-								&& s_ind_max[i + e] < s_ind_max[i])) {
-					s_comp_times[i] = s_comp_times[i + e];
-					s_ind_max[i] = s_ind_max[i + e];
+			if (idx < e) {
+				if ((s_comp_times[idx + e] < s_comp_times[idx])
+						|| (s_comp_times[idx + e] == s_comp_times[idx]
+								&& s_ind_max[idx + e] < s_ind_max[idx])) {
+					s_comp_times[idx] = s_comp_times[idx + e];
+					s_ind_max[idx] = s_ind_max[idx + e];
 				}
 			}
 			__syncthreads();
 		}
 
-		if(i == 0) {
+		if(idx == 0) {
+			/*
 			min = s_ind_max[0] * t + machine_current_index[s_ind_max[0]];
 			imin = s_ind_max[0];
 
 			completion_times[imin] = s_comp_times[0];
 			task_map[task_index[min]] = imin;
+			*/
+			reduced_times[blockIdx.x] = s_comp_times[0];
+			reduced_indexes[blockIdx.x] = s_ind_max[0];
 		}
 
 		__syncthreads();
+	//}
+}
+
+__global__ void blocks_reduction(float* machines, uint* task_index, float* completion_times, int* task_map,
+		uint* machine_current_index, float* reduced_times, uint* reduced_indexes, int m, int t) {
+
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	int idx = threadIdx.x;
+	extern __shared__ int vec[];
+
+	float *s_comp_times = (float*)&vec[0];
+	int *s_ind_max = (int*)&vec[m];
+
+	uint min = 0;
+	uint imin = 0;
+
+	s_comp_times[idx] = reduced_times[idx];
+	s_ind_max[idx] = reduced_indexes[idx];
+
+	__syncthreads();
+
+	for(int e = m/2; e > 0; e/=2)
+	{
+		if (idx < e) {
+			if ((s_comp_times[idx + e] < s_comp_times[idx])
+					|| (s_comp_times[idx + e] == s_comp_times[idx]
+							&& s_ind_max[idx + e] < s_ind_max[idx])) {
+				s_comp_times[idx] = s_comp_times[idx + e];
+				s_ind_max[idx] = s_ind_max[idx + e];
+			}
+		}
+		__syncthreads();
 	}
+
+	if(idx == 0) {
+		min = s_ind_max[0] * t + machine_current_index[s_ind_max[0]];
+		imin = s_ind_max[0];
+
+		completion_times[imin] = s_comp_times[0];
+		task_map[task_index[min]] = imin;
+	}
+
+	__syncthreads();
+
 }
 
 int main(int argc, char** argv) {
@@ -194,8 +242,8 @@ int main(int argc, char** argv) {
 	cudaTest(cudaMemcpy(d_task_map, task_map, mem_size_task_map, cudaMemcpyHostToDevice));
 
 	uint *d_task_index;
-	int *d_segments;
-	float *d_machines;
+	int *d_segments, *reduced_indexes;
+	float *d_machines, *reduced_times;
 
 	cudaTest(cudaMalloc((void **) &d_segments, mem_size_seg));
 	cudaTest(cudaMalloc((void **) &d_machines, mem_size_machines));
@@ -210,10 +258,28 @@ int main(int argc, char** argv) {
 	mgpu::standard_context_t context;
 	mgpu::segmented_sort(d_machines, d_task_index, m * t, d_segments, m, mgpu::less_t<float>(), context);
 
-	dim3 dimBlock(m);
-	dim3 dimGrid(1);
-	min_min_sorted<<<dimGrid, dimBlock, m * sizeof(float) + m * sizeof(int) >>>(d_machines, d_task_index,
-			d_completion_times,	d_task_map, d_machine_cur_index, m, t);
+	if(BLOCK_SIZE > m){
+		block = m;
+		grid = 1;
+	}
+	else {
+		block = BLOCK_SIZE;
+		grid = m/BLOCK_SIZE;
+	}
+
+	dim3 dimBlock(block);
+	dim3 dimGrid(grid);
+	cudaTest(cudaMalloc((void **) &reduced_indexes, sizeof(uint) * (grid)));
+	cudaTest(cudaMalloc((void **) &reduced_times, sizeof(float) * (grid)));
+
+	for(int k = 0; k < t; k++) {
+		min_min_sorted<<<dimGrid, dimBlock, m * sizeof(float) + m * sizeof(int) >>>(d_machines, d_task_index,
+						d_completion_times,	d_task_map, d_machine_cur_index, reduced_times, reduced_indexes, m, t);
+
+		blocks_reduction<<<	1, grid, grid * sizeof(float) + grid * sizeof(int) >>>(d_machines, d_task_index,
+				d_completion_times,	d_task_map, d_machine_cur_index, m, t);
+	}
+
 	cudaEventRecord(stop);
 
 	cudaError_t errSync = cudaGetLastError();

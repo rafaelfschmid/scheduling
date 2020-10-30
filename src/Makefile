@@ -5,7 +5,7 @@ ccompiler=-ccbin g++-4.9
 params=-std=c++11 --expt-extended-lambda -lcuda -D_FORCE_INLINES
 gen=-gencode arch=compute_20,code=sm_20 -gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,code=sm_35 -gencode arch=compute_37,code=sm_37 -gencode arch=compute_50,code=sm_50 -gencode arch=compute_52,code=sm_52 #-gencode arch=compute_60,code=sm_60
 
-all: min minsort hybridmerge hybridradix gpuradix gpumerge gpumintaskcol
+all: min minsort hybridmerge hybridradix gpuradix gpumerge gpumintaskcol gpumergeblocks
 
 min: min.cu
 	nvcc $(ccompiler) $(gen) -O3 min.cu -o min.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
@@ -24,6 +24,9 @@ gpuradix: gpuradix.cu
 
 gpumerge: gpumerge.cu
 	nvcc $(ccompiler) $(gen) gpumerge.cu -o gpumerge.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
+
+gpumergeblocks: gpumergeblocks.cu
+	nvcc $(ccompiler) $(gen) gpumergeblocks.cu -o gpumergeblocks.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
 
 gpumintaskrow: gpumintaskrow.cu
 	nvcc $(ccompiler) $(gen) gpumintaskrow.cu -o gpumintaskrow.exe $(libs) $(params) -DELAPSED_TIME=$(TIME)
