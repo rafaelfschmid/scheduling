@@ -210,8 +210,6 @@ int main(int argc, char** argv) {
 	cub::DeviceSegmentedRadixSort::SortPairs(d_temp, temp_bytes, d_machines, d_machines_out,
 			d_task_index, d_task_index_out, m * t,	m, d_segments, d_segments + 1);
 
-
-
 	dim3 dimBlock(m);
 	dim3 dimGrid(1);
 	min_min_sorted<<<dimGrid, dimBlock, m * sizeof(float) + m * sizeof(int) >>>(d_machines_out, d_task_index_out,
