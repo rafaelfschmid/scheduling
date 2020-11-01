@@ -85,8 +85,8 @@ __global__ void min_min_sorted(float* machines, uint* task_index, float* complet
 	float *s_comp_times = (float*)&vec[0];
 	int *s_ind_max = (int*)&vec[m];
 
-	uint min = 0;
-	uint imin = 0;
+	//uint min = 0;
+	//uint imin = 0;
 
 	//for(int k = 0; k < t; k++) {
 
@@ -133,12 +133,12 @@ __global__ void min_min_sorted(float* machines, uint* task_index, float* complet
 __global__ void blocks_reduction(float* machines, uint* task_index, float* completion_times, int* task_map,
 		uint* machine_current_index, float* reduced_times, uint* reduced_indexes, int m, int t) {
 
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	//int i = blockIdx.x * blockDim.x + threadIdx.x;
 	int idx = threadIdx.x;
 	extern __shared__ int vec[];
 
 	float *s_comp_times = (float*)&vec[0];
-	int *s_ind_max = (int*)&vec[m];
+	int *s_ind_max = (int*)&vec[blockDim.x];
 
 	uint min = 0;
 	uint imin = 0;
@@ -241,8 +241,8 @@ int main(int argc, char** argv) {
 	cudaTest(cudaMemcpy(d_machine_cur_index, machine_cur_index, mem_size_machine_cur_index, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_task_map, task_map, mem_size_task_map, cudaMemcpyHostToDevice));
 
-	uint *d_task_index;
-	int *d_segments, *reduced_indexes;
+	uint *d_task_index, *reduced_indexes;
+	int *d_segments;
 	float *d_machines, *reduced_times;
 
 	cudaTest(cudaMalloc((void **) &d_segments, mem_size_seg));
@@ -254,10 +254,8 @@ int main(int argc, char** argv) {
 	cudaTest(cudaMemcpy(d_machines, machines, mem_size_machines, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_task_index, task_index, mem_size_task_index, cudaMemcpyHostToDevice));
 
-	cudaEventRecord(start);
-	mgpu::standard_context_t context;
-	mgpu::segmented_sort(d_machines, d_task_index, m * t, d_segments, m, mgpu::less_t<float>(), context);
-
+	int block, grid;
+	
 	if(BLOCK_SIZE > m){
 		block = m;
 		grid = 1;
@@ -272,12 +270,19 @@ int main(int argc, char** argv) {
 	cudaTest(cudaMalloc((void **) &reduced_indexes, sizeof(uint) * (grid)));
 	cudaTest(cudaMalloc((void **) &reduced_times, sizeof(float) * (grid)));
 
+
+	cudaEventRecord(start);
+	mgpu::standard_context_t context;
+	mgpu::segmented_sort(d_machines, d_task_index, m * t, d_segments, m, mgpu::less_t<float>(), context);
+
+	std::cout << "block:" << block << " --- grid:"<< grid << "\n";
 	for(int k = 0; k < t; k++) {
 		min_min_sorted<<<dimGrid, dimBlock, m * sizeof(float) + m * sizeof(int) >>>(d_machines, d_task_index,
 						d_completion_times,	d_task_map, d_machine_cur_index, reduced_times, reduced_indexes, m, t);
 
+		std::cout << "reduction\n";
 		blocks_reduction<<<	1, grid, grid * sizeof(float) + grid * sizeof(int) >>>(d_machines, d_task_index,
-				d_completion_times,	d_task_map, d_machine_cur_index, m, t);
+				d_completion_times,	d_task_map, d_machine_cur_index, reduced_times, reduced_indexes, m, t);
 	}
 
 	cudaEventRecord(stop);
