@@ -26,7 +26,7 @@
 #endif
 
 #ifndef BLOCK_SIZE
-#define BLOCK_SIZE 8
+#define BLOCK_SIZE 32
 #endif
 
 #ifndef EXECUTIONS
@@ -80,54 +80,50 @@ __global__ void min_min_sorted(float* machines, uint* task_index, float* complet
 
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	int idx = threadIdx.x;
+
+	//printf("i=%d --- idx=%d\n", i, idx);
 	extern __shared__ int vec[];
 
 	float *s_comp_times = (float*)&vec[0];
-	int *s_ind_max = (int*)&vec[m];
+	int *s_ind_max = (int*)&vec[blockDim.x];
 
-	//uint min = 0;
-	//uint imin = 0;
+	int j = machine_current_index[i];
+	while (task_map[task_index[i * t + j]] != -1) {
+		j++;
+	}
+	machine_current_index[i] = j;
 
-	//for(int k = 0; k < t; k++) {
+	s_comp_times[idx] = completion_times[i] + machines[i * t + j];
+	s_ind_max[idx] = i;
+	
+	__syncthreads();
+//	printf("shared copy, ok!");
 
-		int j = machine_current_index[i];
-		while (task_map[task_index[i * t + j]] != -1) {
-			j++;
-		}
-		machine_current_index[i] = j;
-
-		s_comp_times[idx] = completion_times[i] + machines[i * t + j];
-		s_ind_max[idx] = i;
-
-		__syncthreads();
-
-		for(int e = m/2; e > 0; e/=2)
-		{
-			if (idx < e) {
-				if ((s_comp_times[idx + e] < s_comp_times[idx])
-						|| (s_comp_times[idx + e] == s_comp_times[idx]
-								&& s_ind_max[idx + e] < s_ind_max[idx])) {
-					s_comp_times[idx] = s_comp_times[idx + e];
-					s_ind_max[idx] = s_ind_max[idx + e];
-				}
+	for(int e = blockDim.x/2; e > 0; e/=2)
+	{
+		if (idx < e) {
+			if ((s_comp_times[idx + e] < s_comp_times[idx])
+					|| (s_comp_times[idx + e] == s_comp_times[idx]
+							&& s_ind_max[idx + e] < s_ind_max[idx])) {
+				s_comp_times[idx] = s_comp_times[idx + e];
+				s_ind_max[idx] = s_ind_max[idx + e];
 			}
-			__syncthreads();
 		}
-
-		if(idx == 0) {
-			/*
-			min = s_ind_max[0] * t + machine_current_index[s_ind_max[0]];
-			imin = s_ind_max[0];
-
-			completion_times[imin] = s_comp_times[0];
-			task_map[task_index[min]] = imin;
-			*/
-			reduced_times[blockIdx.x] = s_comp_times[0];
-			reduced_indexes[blockIdx.x] = s_ind_max[0];
-		}
-
 		__syncthreads();
-	//}
+	}
+
+	if(idx == 0) {
+		/*
+		min = s_ind_max[0] * t + machine_current_index[s_ind_max[0]];
+		imin = s_ind_max[0];
+		completion_times[imin] = s_comp_times[0];
+		task_map[task_index[min]] = imin;
+		*/
+		reduced_times[blockIdx.x] = s_comp_times[0];
+		reduced_indexes[blockIdx.x] = s_ind_max[0];
+//		printf("i=%d --- idx=%d\n", i, idx);
+	}
+
 }
 
 __global__ void blocks_reduction(float* machines, uint* task_index, float* completion_times, int* task_map,
@@ -148,7 +144,7 @@ __global__ void blocks_reduction(float* machines, uint* task_index, float* compl
 
 	__syncthreads();
 
-	for(int e = m/2; e > 0; e/=2)
+	for(int e = blockDim.x/2; e > 0; e/=2)
 	{
 		if (idx < e) {
 			if ((s_comp_times[idx + e] < s_comp_times[idx])
@@ -169,7 +165,7 @@ __global__ void blocks_reduction(float* machines, uint* task_index, float* compl
 		task_map[task_index[min]] = imin;
 	}
 
-	__syncthreads();
+	//__syncthreads();
 
 }
 
@@ -277,12 +273,20 @@ int main(int argc, char** argv) {
 
 	std::cout << "block:" << block << " --- grid:"<< grid << "\n";
 	for(int k = 0; k < t; k++) {
-		min_min_sorted<<<dimGrid, dimBlock, m * sizeof(float) + m * sizeof(int) >>>(d_machines, d_task_index,
+
+		min_min_sorted<<<dimGrid, dimBlock, block * sizeof(float) + block * sizeof(int) >>>(d_machines, d_task_index,
 						d_completion_times,	d_task_map, d_machine_cur_index, reduced_times, reduced_indexes, m, t);
 
-		std::cout << "reduction\n";
+		//if(grid > 1)
 		blocks_reduction<<<	1, grid, grid * sizeof(float) + grid * sizeof(int) >>>(d_machines, d_task_index,
 				d_completion_times,	d_task_map, d_machine_cur_index, reduced_times, reduced_indexes, m, t);
+
+		cudaError_t errSync = cudaGetLastError();
+		cudaError_t errAsync = cudaDeviceSynchronize();
+		if (errSync != cudaSuccess)
+			printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
+		if (errAsync != cudaSuccess)
+			printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
 	}
 
 	cudaEventRecord(stop);
