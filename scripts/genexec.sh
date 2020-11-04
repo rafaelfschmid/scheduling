@@ -1,26 +1,39 @@
 times=$1
-progs=(hybridmerge hybridradix gpumerge gpuradix gpumintaskcol minsort min)
+#progs=(hybridmerge hybridradix gpumergeblocks gpuradixblocks gpumintaskcol minsort) #min)
+progs=(hybridmerge hybridradix gpumergeblocks gpuradixblocks minsort) #min)
 
-for p in `seq 0 6` ; do
+for p in `seq 0 4` ; do
 	echo "" > ${times}/${progs[p]}.time
 done
 
-for i in 1 2 4 8 16 32 64 128 ; do
-	((t = $i * 1024))
-	((m = $i * 32))
+t=1024
+while [ $t -le 65536 ]
+do
+	m=2
+	((dim=$t*$m))
+	while [[ $m -lt $t && dim -lt 536870912 ]] 
+	do
+		echo ${t}x${m}
 
-	for j in `seq 1 10` ; do
-		./../scripts/generator ${t} ${m} 1 1 0 > gen.log
+		for p in `seq 0 4` ; do
+			echo ${t}x${m} >> ${times}/${progs[p]}.time
+		done
 
-		echo ${t}x${m}_${j}
-		for p in `seq 0 6` ; do
-			echo ${t}x${m}_${j} >> ${times}/${progs[p]}.time
+		for j in `seq 1 3` ; do
+			./../scripts/generator ${t} ${m} 1 1 0 > gen.log
 
-			for k in `seq 1 10` ; do
-				./${progs[p]}.exe < B.u_c_hihi >> ${times}/${progs[p]}.time
+			for p in `seq 0 4` ; do
+				for k in `seq 1 5` ; do
+					./${progs[p]}.exe < B.u_c_hihi >> ${times}/${progs[p]}.time
+				done
 			done
+		done
+
+		for p in `seq 0 4` ; do
 			echo " " >> ${times}/${progs[p]}.time
 		done
+		((m=$m*2))
+		((dim=$t*$m))
 	done
-#	echo " "
+	((t=$t*2))
 done
