@@ -266,11 +266,14 @@ int main(int argc, char** argv) {
 	cudaTest(cudaMalloc((void **) &d_segments, mem_size_seg));
 	cudaTest(cudaMalloc((void **) &d_machines, mem_size_machines));
 	cudaTest(cudaMalloc((void **) &d_task_index, mem_size_task_index));
+	cudaTest(cudaMalloc((void **) &d_machines_out, mem_size_machines));
+	cudaTest(cudaMalloc((void **) &d_task_index_out, mem_size_task_index));
 
 	// copy host memory to device
 	cudaTest(cudaMemcpy(d_segments, segments, mem_size_seg, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_machines, machines, mem_size_machines, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_task_index, task_index, mem_size_task_index, cudaMemcpyHostToDevice));
+
 
 	int block, grid;
 	
@@ -339,6 +342,8 @@ int main(int argc, char** argv) {
 	cudaFree(d_segments);
 	cudaFree(d_machines);
 	cudaFree(d_task_index);
+	cudaFree(d_machines_out);
+	cudaFree(d_task_index_out);
 	cudaFree(d_completion_times);
 	cudaFree(d_task_map);
 

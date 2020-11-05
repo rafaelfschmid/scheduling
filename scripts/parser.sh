@@ -11,6 +11,6 @@ then
 	mv $outputdir/$file  $outputdir/${file}".bkp"
 fi
 
-./parserstd.exe $outputdir/$file "$(ls -d  "$PWD"/../times/$times/*)"
+./parserstd.exe $outputdir/$file "$(ls -d  "$PWD"/$times/*)"
 
 
