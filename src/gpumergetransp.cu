@@ -171,7 +171,8 @@ __global__ void blocks_reduction(float* completion_times, int* task_map,
 
 }
 
-__global__ void transposeNoBankConflicts(float *odata, const float *idata)
+template<typename T>
+__global__ void transposeNoBankConflicts(T *odata, const T *idata)
 {
   __shared__ float tile[TILE_DIM][TILE_DIM+1];
 
@@ -259,9 +260,9 @@ int main(int argc, char** argv) {
 	cudaTest(cudaMemcpy(d_machine_cur_index, machine_cur_index, mem_size_machine_cur_index, cudaMemcpyHostToDevice));
 	cudaTest(cudaMemcpy(d_task_map, task_map, mem_size_task_map, cudaMemcpyHostToDevice));
 
-	uint *d_task_index, *reduced_indexes;
+	uint *d_task_index, *d_task_index_out, *reduced_indexes;
 	int *d_segments;
-	float *d_machines, *reduced_times;
+	float *d_machines, *d_machines_out, *reduced_times;
 
 	cudaTest(cudaMalloc((void **) &d_segments, mem_size_seg));
 	cudaTest(cudaMalloc((void **) &d_machines, mem_size_machines));
